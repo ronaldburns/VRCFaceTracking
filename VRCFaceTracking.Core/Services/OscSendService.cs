@@ -33,23 +33,23 @@ public class OscSendService
 
         _oscTarget.PropertyChanged += (_, args) =>
         {
-            if (args.PropertyName is not nameof(IOscTarget.OutPort))
+            if (args.PropertyName is not (nameof(IOscTarget.OutPort) or nameof(IOscTarget.DestinationAddress)))
             {
                 return;
             }
 
-            if (_oscTarget.OutPort == default)
+            if (_oscTarget.OutPort == default || string.IsNullOrEmpty(_oscTarget.DestinationAddress))
             {
                 return;
             }
 
-            if (string.IsNullOrEmpty(_oscTarget.DestinationAddress) || !IPAddress.TryParse(_oscTarget.DestinationAddress, out var ipAddress))
+            // OscRecvService puts an invalid address back to 127.0.0.1, which lands here again
+            if (!IPAddress.TryParse(_oscTarget.DestinationAddress, out var ipAddress))
             {
-                _oscTarget.DestinationAddress = "127.0.0.1";
-                IPAddress.TryParse(_oscTarget.DestinationAddress, out ipAddress);
+                return;
             }
 
-            UpdateTarget(new IPEndPoint(ipAddress!, _oscTarget.OutPort));
+            UpdateTarget(new IPEndPoint(ipAddress, _oscTarget.OutPort));
         };
     }
 
