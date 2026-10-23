@@ -97,6 +97,8 @@
       <StronglyTypedClassName>Resources</StronglyTypedClassName>
       <PublicClass>true</PublicClass>
     </EmbeddedResource>
+    <!-- Modules listed from GitHub releases, pinned to a reviewed release. The module update workflow bumps it with a PR -->
+    <EmbeddedResource Include="GithubModules.json" LogicalName="GithubModules.json" />
     <Compile Update="Strings\Resources.Designer.cs">
       <DesignTime>True</DesignTime>
       <AutoGen>True</AutoGen>
