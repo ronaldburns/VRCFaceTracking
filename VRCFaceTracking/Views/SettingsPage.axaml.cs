@@ -18,9 +18,9 @@ public partial class SettingsPage : UserControl
         InitializeComponent();
         DataContext = Ioc.Default.GetRequiredService<SettingsViewModel>();
 
-        // Show current version
-        var version = Assembly.GetExecutingAssembly().GetName().Version;
-        VersionText.Text = $"Version {version?.ToString(3) ?? "Unknown"}";
+        // Show current version. Installed copies know their full release version
+        var version = ViewModel.Updates.InstalledVersion ?? Assembly.GetExecutingAssembly().GetName().Version?.ToString(3);
+        VersionText.Text = $"Version {version ?? "Unknown"}";
 
         var faTheme = Application.Current?.Styles.OfType<FluentAvaloniaTheme>().FirstOrDefault();
         if (faTheme != null)

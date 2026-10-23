@@ -16,7 +16,8 @@ public class ActivationService(
     ModuleInstaller moduleInstaller,
     ILibManager libManager,
     ILogger<ActivationService> logger,
-    OpenVRService openVrService)
+    OpenVRService openVrService,
+    UpdateService updateService)
     : IActivationService
 {
     public async Task ActivateAsync(object activationArgs)
@@ -89,6 +90,8 @@ public class ActivationService(
         
         logger.LogInformation("Initializing modules...");
         Dispatcher.UIThread.Post(async () => await libManager.Initialize());
+
+        _ = updateService.CheckForUpdatesAsync();
         
         await Task.CompletedTask;
     }

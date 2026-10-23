@@ -48,6 +48,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IActivationService, ActivationService>();
         services.AddSingleton<OpenVRService>();
         services.AddSingleton<IModuleDataService, ModuleDataService>();
+        services.AddSingleton<UpdateService>();
 
         services.AddSingleton<MainViewModel>();
         services.AddSingleton<OutputViewModel>();

@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using VRCFaceTracking.Core.Contracts;
 using VRCFaceTracking.Models;
 using VRCFaceTracking.Services;
@@ -11,6 +12,7 @@ public partial class SettingsViewModel : ObservableRecipient
 
     public IOscTarget OscTarget { get; }
     public RiskySettingsViewModel RiskySettings { get; }
+    public UpdateService Updates { get; }
 
     private readonly OpenVRService _openVRService;
 
@@ -30,15 +32,26 @@ public partial class SettingsViewModel : ObservableRecipient
         GithubService githubService,
         OpenVRService openVRService,
         IOscTarget oscTarget,
-        RiskySettingsViewModel riskySettingsViewModel)
+        RiskySettingsViewModel riskySettingsViewModel,
+        UpdateService updateService)
     {
         _openVRService = openVRService;
         OscTarget = oscTarget;
         RiskySettings = riskySettingsViewModel;
+        Updates = updateService;
 
         _openVRService.InitIfNotAlready();
         LoadContributors(githubService);
     }
+
+    [RelayCommand]
+    private Task CheckForUpdates() => Updates.CheckForUpdatesAsync();
+
+    [RelayCommand]
+    private Task DownloadUpdate() => Updates.DownloadUpdateAsync();
+
+    [RelayCommand]
+    private void RestartToUpdate() => Updates.RestartToUpdate();
 
     private async void LoadContributors(GithubService githubService)
     {

@@ -37,7 +37,8 @@ public partial class UnifiedLibManager : ILibManager
         _sendCoordinator = sendCoordinator;
 
         LoadedModulesMetadata = new ObservableCollection<ModuleMetadataInternal>();
-        _sandboxProcessPath = Path.GetFullPath(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "VRCFaceTracking.ModuleProcess.exe" : "VRCFaceTracking.ModuleProcess");
+        // Next to the app rather than in the working directory, which is somewhere else when the updater restarts the app
+        _sandboxProcessPath = Path.Combine(AppContext.BaseDirectory, RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "VRCFaceTracking.ModuleProcess.exe" : "VRCFaceTracking.ModuleProcess");
         if ( !File.Exists(_sandboxProcessPath) )
         {
             // @TODO: Better error handling

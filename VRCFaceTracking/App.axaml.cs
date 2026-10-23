@@ -50,7 +50,9 @@ namespace VRCFaceTracking
             // Remove duplicate Avalonia/CommunityToolkit data validation
             BindingPlugins.DataValidators.RemoveAt(0);
 
+            // appsettings.json is next to the app, which isn't always the working directory
             _host = Host.CreateDefaultBuilder()
+                .UseContentRoot(AppContext.BaseDirectory)
                 .ConfigureServices((_, services) =>services.AddCommonServices())
                 .Build();
             Ioc.Default.ConfigureServices(_host.Services);
