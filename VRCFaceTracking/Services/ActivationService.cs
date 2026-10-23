@@ -91,7 +91,7 @@ public class ActivationService(
         logger.LogInformation("Initializing modules...");
         Dispatcher.UIThread.Post(async () => await libManager.Initialize());
 
-        _ = updateService.CheckForUpdatesAsync();
+        _ = updateService.CheckForUpdatesPeriodicallyAsync();
         
         await Task.CompletedTask;
     }
