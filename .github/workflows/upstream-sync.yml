@@ -1,0 +1,131 @@
+name: Upstream Sync
+on:
+  schedule:
+    - cron: '23 9 * * 1' # Mondays
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Upstream branch to check
+        type: string
+        default: master
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+env:
+  # The repo this fork follows and the branch its changes are merged into. A fork of this fork can point these at its own upstream
+  UPSTREAM_REPO: benaclejames/VRCFaceTracking
+  UPSTREAM_BRANCH: ${{ inputs.branch || 'master' }}
+  BASE_BRANCH: master
+  GH_REPO: ${{ github.repository }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      pr: ${{ steps.pr.outputs.number }}
+      sha: ${{ steps.upstream.outputs.sha }}
+      mergeable: ${{ steps.pr.outputs.mergeable }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BASE_BRANCH }}
+          fetch-depth: 0 # To tell which upstream commits are new
+
+      - name: Look for upstream changes
+        id: upstream
+        run: |
+          git fetch --no-tags "https://github.com/$UPSTREAM_REPO" "$UPSTREAM_BRANCH"
+          sha=$(git rev-parse FETCH_HEAD)
+          if git merge-base --is-ancestor "$sha" HEAD; then
+            echo "$BASE_BRANCH already has everything from $UPSTREAM_REPO $UPSTREAM_BRANCH"
+            exit 0
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      # The PR comes straight from the upstream branch, so nothing is pushed here and it follows upstream as it moves.
+      # (This token can't push commits that change workflow files, which upstream's sometimes do)
+      - name: Open or update the PR
+        id: pr
+        if: steps.upstream.outputs.sha != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.upstream.outputs.sha }}
+        run: |
+          owner=${UPSTREAM_REPO%%/*}
+          find_pr() {
+            gh pr list --base "$BASE_BRANCH" --state open --json number,headRepositoryOwner,headRefName \
+              -q ".[] | select(.headRepositoryOwner.login == \"$owner\" and .headRefName == \"$UPSTREAM_BRANCH\") | .number" | head -n 1
+          }
+
+          pr=$(find_pr)
+          if [ -n "$pr" ] && gh pr view "$pr" --json body -q .body | grep -q "upstream-sha: $SHA"; then
+            echo "PR $pr already covers $SHA"
+            exit 0
+          fi
+
+          # Commit subjects go in a code block so mentions and issue numbers in them don't link or notify anyone
+          {
+            echo "Commits from [$UPSTREAM_REPO]($GITHUB_SERVER_URL/$UPSTREAM_REPO) \`$UPSTREAM_BRANCH\` that aren't in \`$BASE_BRANCH\` yet:"
+            echo
+            echo '````'
+            git log --no-merges --format='%h %s' "HEAD..$SHA"
+            echo '````'
+            echo
+            echo "Merge with **Create a merge commit**. Squashing or rebasing would rewrite upstream's commits, and the next sync would conflict with them. Merging releases the changes to installed copies."
+            echo
+            echo "<!-- upstream-sha: $SHA -->"
+          } > body.md
+
+          if [ -n "$pr" ]; then
+            gh pr edit "$pr" --body-file body.md
+          else
+            url=$(gh pr create --base "$BASE_BRANCH" --head "$owner:$UPSTREAM_BRANCH" \
+              --title "Merge upstream changes from $UPSTREAM_REPO $UPSTREAM_BRANCH" --body-file body.md)
+            pr=${url##*/}
+          fi
+          echo "number=$pr" >> "$GITHUB_OUTPUT"
+
+          # GitHub works out whether the PR merges in the background
+          for _ in $(seq 30); do
+            mergeable=$(gh pr view "$pr" --json mergeable -q .mergeable)
+            [ "$mergeable" != UNKNOWN ] && break
+            sleep 5
+          done
+          echo "mergeable=$mergeable" >> "$GITHUB_OUTPUT"
+
+  # Builds what merging would produce. PRs opened by this workflow don't start fork-build.yml themselves
+  build:
+    needs: check
+    if: needs.check.outputs.mergeable == 'MERGEABLE'
+    uses: ./.github/workflows/fork-build.yml
+    with:
+      ref: refs/pull/${{ needs.check.outputs.pr }}/merge
+
+  report:
+    needs: [check, build]
+    if: always() && needs.check.outputs.pr != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Comment on the PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ needs.check.outputs.pr }}
+          SHA: ${{ needs.check.outputs.sha }}
+          MERGEABLE: ${{ needs.check.outputs.mergeable }}
+          BUILD: ${{ needs.build.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          case "$MERGEABLE/$BUILD" in
+            MERGEABLE/success) message="merges cleanly and builds." ;;
+            MERGEABLE/*) message="merges cleanly, but the build failed ([log]($RUN_URL))." ;;
+            CONFLICTING/*) message="conflicts with \`$BASE_BRANCH\`, so it has to be merged by hand." ;;
+            *) message="GitHub hadn't worked out whether it merges yet, so it wasn't built. [Rerun]($RUN_URL) later." ;;
+          esac
+          gh pr comment "$PR" --body "Upstream at ${SHA::7} $message"
