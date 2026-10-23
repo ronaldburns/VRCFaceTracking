@@ -13,9 +13,17 @@ concurrency:
   group: fork-release
   cancel-in-progress: false
 
+env:
+  # Versions are <AssemblyVersion>-<suffix>.<run>. A fork can use its own suffix
+  RELEASE_SUFFIX: ron
+
 jobs:
   release:
-    runs-on: ubuntu-latest
+    # vpk can only build Windows installers on Windows
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -27,27 +35,30 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      # Same as upstream's Steam build, which is also framework-dependent
+      - name: Version
+        id: version
+        run: |
+          base=$(sed -n 's|.*<AssemblyVersion>\([0-9]*\.[0-9]*\.[0-9]*\).*|\1|p' Directory.Build.props)
+          version="${base}-${RELEASE_SUFFIX}.${{ github.run_number }}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      # Framework-dependent like upstream's Steam build. UpdateRepository is where installed copies look for updates
       - name: Publish Windows (x64)
         run: |
-          dotnet publish VRCFaceTracking/VRCFaceTracking.csproj --configuration Release -r win-x64 --self-contained false --output ./publish/windows
-          dotnet publish VRCFaceTracking.ModuleProcess/VRCFaceTracking.ModuleProcess.csproj --configuration Release -r win-x64 --self-contained false --output ./publish/windows
-
-      - name: Package
-        run: cd publish/windows && zip -qr ../../VRCFaceTracking-win-x64.zip .
+          for project in VRCFaceTracking/VRCFaceTracking.csproj VRCFaceTracking.ModuleProcess/VRCFaceTracking.ModuleProcess.csproj; do
+            dotnet publish "$project" --configuration Release -r win-x64 --self-contained false \
+              -p:UpdateRepository=${{ github.repository }} --output ./publish/windows
+          done
 
       - name: Write release notes
-        id: notes
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          version=$(grep -oP '(?<=<AssemblyVersion>)[^<]+' Directory.Build.props)
-          echo "tag=v${version}-ron.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
-
           {
             echo "Unofficial build of [VRCFaceTracking](https://github.com/benaclejames/VRCFaceTracking) from this fork's \`master\` branch at ${GITHUB_SHA::7}. It includes changes that aren't in the official release and isn't supported by the VRCFaceTracking team."
             echo
-            echo "Needs the [.NET 10 runtime](https://dotnet.microsoft.com/download/dotnet/10.0). Extract the zip and run \`VRCFaceTracking.exe\` from the extracted folder."
+            echo "Run \`VRCFaceTracking-win-Setup.exe\` to install it. It installs the .NET 10 runtime if needed, and after that VRCFaceTracking updates itself from this repo's releases. \`VRCFaceTracking-win-Portable.zip\` is the same app to extract anywhere, and it updates itself too. The files aren't signed, so Windows SmartScreen warns about them."
 
             previous=$(gh release view --json tagName -q .tagName 2>/dev/null || true)
             if [ -n "$previous" ]; then
@@ -57,11 +68,28 @@ jobs:
             fi
           } > release-notes.md
 
+      - name: Install vpk
+        run: dotnet tool install -g vpk --version 1.2.161
+
+      # The previous release lets vpk build a delta package, so updates download less
+      - name: Download previous release
+        run: |
+          vpk download github --repoUrl "https://github.com/${{ github.repository }}" --token "${{ github.token }}" \
+            || echo "No previous Velopack release to build a delta from"
+
+      - name: Package
+        run: |
+          vpk pack --packId VRCFaceTracking --packVersion "${{ steps.version.outputs.version }}" \
+            --packDir ./publish/windows --mainExe VRCFaceTracking.exe --runtime win-x64 \
+            --packTitle VRCFaceTracking --packAuthors "${{ github.repository_owner }}" \
+            --framework net10-x64-runtime --icon VRCFaceTracking/Assets/WindowIcon.ico \
+            --releaseNotes release-notes.md
+
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ steps.notes.outputs.tag }}" VRCFaceTracking-win-x64.zip \
-            --target "$GITHUB_SHA" \
-            --title "${{ steps.notes.outputs.tag }}" \
-            --notes-file release-notes.md
+          vpk upload github --repoUrl "https://github.com/${{ github.repository }}" --token "${{ github.token }}" \
+            --publish --tag "${{ steps.version.outputs.tag }}" --releaseName "${{ steps.version.outputs.tag }}" \
+            --targetCommitish "$GITHUB_SHA"
+          gh release edit "${{ steps.version.outputs.tag }}" --notes-file release-notes.md
