@@ -46,6 +46,7 @@ public static class ServiceCollectionExtensions
         services.AddTransient<IIdentityService, IdentityService>();
         
         services.AddSingleton<IActivationService, ActivationService>();
+        services.AddSingleton<TrayService>();
         services.AddSingleton<OpenVRService>();
         services.AddSingleton<IModuleDataService, ModuleDataService>();
 
