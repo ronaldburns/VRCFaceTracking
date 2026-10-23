@@ -5,6 +5,7 @@
     xmlns:s="using:VRCFaceTracking.Strings"
     xmlns:vm="using:VRCFaceTracking.ViewModels"
     xmlns:model="clr-namespace:VRCFaceTracking;assembly=VRCFaceTracking.Core"
+    xmlns:models="using:VRCFaceTracking.Models"
     x:DataType="vm:MainViewModel"
     x:Class="VRCFaceTracking.Views.MainPage">
 
@@ -80,6 +81,52 @@
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
+
+            <TextBlock FontSize="13" FontWeight="SemiBold" Opacity="0.6" Text="Tracking Sources" Margin="0,8,0,0" />
+            <Border CornerRadius="6" BorderThickness="1" Padding="16,14" Background="{DynamicResource ControlFillColorDefaultBrush}">
+                <StackPanel Spacing="14">
+                    <TextBlock FontSize="12" Opacity="0.7" TextWrapping="Wrap"
+                               Text="Pick the module that handles each part of your face. Eye tracking covers gaze, eyelids and brows; face tracking covers the mouth, jaw, cheeks, nose and tongue. Changing a source restarts your modules." />
+
+                    <Grid ColumnDefinitions="Auto,*,Auto">
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+                            <ui:SymbolIcon Symbol="View" FontSize="24" VerticalAlignment="Center" />
+                            <StackPanel Spacing="3" VerticalAlignment="Center">
+                                <TextBlock FontWeight="SemiBold" FontSize="14" Text="Eye Tracking" />
+                                <TextBlock FontSize="12" Opacity="0.7" Text="{Binding ActiveEyeSource, Mode=OneWay}" />
+                            </StackPanel>
+                        </StackPanel>
+                        <ComboBox Grid.Column="2" MinWidth="200" VerticalAlignment="Center"
+                                  ItemsSource="{Binding TrackingSourceOptions, Mode=OneWay}"
+                                  SelectedItem="{Binding SelectedEyeSource, Mode=TwoWay}">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="models:TrackingSourceOption">
+                                    <TextBlock Text="{Binding DisplayName}" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                    </Grid>
+
+                    <Grid ColumnDefinitions="Auto,*,Auto">
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+                            <ui:SymbolIcon Symbol="Emoji" FontSize="24" VerticalAlignment="Center" />
+                            <StackPanel Spacing="3" VerticalAlignment="Center">
+                                <TextBlock FontWeight="SemiBold" FontSize="14" Text="Face Tracking" />
+                                <TextBlock FontSize="12" Opacity="0.7" Text="{Binding ActiveExpressionSource, Mode=OneWay}" />
+                            </StackPanel>
+                        </StackPanel>
+                        <ComboBox Grid.Column="2" MinWidth="200" VerticalAlignment="Center"
+                                  ItemsSource="{Binding TrackingSourceOptions, Mode=OneWay}"
+                                  SelectedItem="{Binding SelectedExpressionSource, Mode=TwoWay}">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate x:DataType="models:TrackingSourceOption">
+                                    <TextBlock Text="{Binding DisplayName}" />
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                    </Grid>
+                </StackPanel>
+            </Border>
 
             <TextBlock FontSize="13" FontWeight="SemiBold" Opacity="0.6" Text="Status" Margin="0,8,0,0" />
             <Border CornerRadius="6" BorderThickness="1" Padding="16,14" Background="{DynamicResource ControlFillColorDefaultBrush}">

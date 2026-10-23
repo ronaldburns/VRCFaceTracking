@@ -59,6 +59,15 @@ public class ModuleRuntimeInfo
     public bool SupportsExpressionTracking;
 
     /// <summary>
+    /// Whether this module was told eye tracking was available when it was initialized.
+    /// </summary>
+    public bool EyeOffered;
+    /// <summary>
+    /// Whether this module was told expression tracking was available when it was initialized.
+    /// </summary>
+    public bool ExpressionOffered;
+
+    /// <summary>
     /// Queue of packets to send
     /// </summary>
     public Queue<QueuedPacket> EventBus;

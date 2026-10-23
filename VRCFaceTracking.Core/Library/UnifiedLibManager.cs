@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 using VRCFaceTracking.Core.Contracts.Services;
+using VRCFaceTracking.Core.Models;
 using VRCFaceTracking.Core.Sandboxing;
 using VRCFaceTracking.Core.Services;
 
@@ -15,6 +16,11 @@ public partial class UnifiedLibManager : ILibManager
     private readonly IDispatcherService _dispatcherService;
     private readonly IModuleDataService _moduleDataService;
     private readonly SendCoordinator _sendCoordinator;
+    private readonly TrackingSourceSettings _trackingSources;
+    private readonly Task _trackingSourcesLoad;
+
+    // Assembly names of the modules spawned by the last Initialize, so a source preference for a module that isn't installed is ignored
+    private readonly HashSet<string> _spawnedModuleNames = new(StringComparer.OrdinalIgnoreCase);
 
     public ObservableCollection<ModuleMetadataInternal> LoadedModulesMetadata { get; set; }
 
@@ -27,7 +33,8 @@ public partial class UnifiedLibManager : ILibManager
     private readonly List<ModuleRuntimeInfo> _moduleThreads = new();
     private static VrcftSandboxServer _sandboxServer;
 
-    public UnifiedLibManager(ILoggerFactory factory, IDispatcherService dispatcherService, IModuleDataService moduleDataService, SendCoordinator sendCoordinator)
+    public UnifiedLibManager(ILoggerFactory factory, IDispatcherService dispatcherService, IModuleDataService moduleDataService, SendCoordinator sendCoordinator,
+        ILocalSettingsService localSettingsService, TrackingSourceSettings trackingSources)
     {
         _loggerFactory = factory;
         _logger = factory.CreateLogger<UnifiedLibManager>();
@@ -35,6 +42,10 @@ public partial class UnifiedLibManager : ILibManager
         _dispatcherService = dispatcherService;
         _moduleDataService = moduleDataService;
         _sendCoordinator = sendCoordinator;
+        _trackingSources = trackingSources;
+
+        // Started here rather than in Initialize, which can run seconds later, so a choice made in the UI before then isn't overwritten
+        _trackingSourcesLoad = localSettingsService.Load(_trackingSources);
 
         LoadedModulesMetadata = new ObservableCollection<ModuleMetadataInternal>();
         _sandboxProcessPath = Path.GetFullPath(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "VRCFaceTracking.ModuleProcess.exe" : "VRCFaceTracking.ModuleProcess");
@@ -69,11 +80,18 @@ public partial class UnifiedLibManager : ILibManager
 
         await TeardownAllModules();
 
+        await _trackingSourcesLoad;
+
         var modules = _moduleDataService.GetInstalledModules().Concat(_moduleDataService.GetLegacyModules());
-        var modulePaths = modules.Select(m => m.AssemblyLoadPath);
+        var modulePaths = modules.Select(m => m.AssemblyLoadPath).ToArray();
+
+        _spawnedModuleNames.Clear();
+        _spawnedModuleNames.UnionWith(modulePaths.Select(Path.GetFileNameWithoutExtension).OfType<string>());
+        _logger.LogInformation("Tracking sources. Eye: {eye} Expr: {expr}",
+            DescribeSource(_trackingSources.EyeSource), DescribeSource(_trackingSources.ExpressionSource));
 
         AvailableSandboxModules.Clear();
-        InitialiseSandboxesBaseOnPaths(modulePaths.ToArray());
+        InitialiseSandboxesBaseOnPaths(modulePaths);
 
         if (AvailableSandboxModules.Count > 0)
         {
@@ -113,6 +131,19 @@ public partial class UnifiedLibManager : ILibManager
         EyeStatus = ModuleState.Uninitialized;
         ExpressionStatus = ModuleState.Uninitialized;
     }
+
+    // A module may take a part of the face if the user left it on automatic, picked this module, or picked a module that isn't installed
+    private bool IsAllowedSource(string preferredSource, ModuleRuntimeInfo module) =>
+        preferredSource == TrackingSourceSettings.Automatic
+        || !_spawnedModuleNames.Contains(preferredSource)
+        || string.Equals(preferredSource, module.ModuleClassName, StringComparison.OrdinalIgnoreCase);
+
+    private string DescribeSource(string preferredSource) => preferredSource switch
+    {
+        TrackingSourceSettings.Automatic => "automatic",
+        _ when !_spawnedModuleNames.Contains(preferredSource) => $"{preferredSource} (not installed, using automatic)",
+        _ => preferredSource,
+    };
 
     private async Task TryTeardownModule(ModuleRuntimeInfo module)
     {

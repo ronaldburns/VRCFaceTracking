@@ -103,10 +103,13 @@ public partial class UnifiedLibManager
         module.SupportsEyeTracking        = module.SupportsEyeTracking        && reply.eyeAvailable;
         module.SupportsExpressionTracking = module.SupportsExpressionTracking && reply.expressionAvailable;
 
+        module.EyeOffered        = EyeStatus == ModuleState.Uninitialized        && IsAllowedSource(_trackingSources.EyeSource, module);
+        module.ExpressionOffered = ExpressionStatus == ModuleState.Uninitialized && IsAllowedSource(_trackingSources.ExpressionSource, module);
+
         var initPacket = new EventInitPacket
         {
-            expressionAvailable = ExpressionStatus == ModuleState.Uninitialized,
-            eyeAvailable        = EyeStatus == ModuleState.Uninitialized,
+            expressionAvailable = module.ExpressionOffered,
+            eyeAvailable        = module.EyeOffered,
         };
         _logger.LogInformation("Got supported for module {module}. Expr: {expr} Eye: {eye}...",
             module.ModuleClassName, initPacket.expressionAvailable, initPacket.eyeAvailable);
@@ -123,14 +126,25 @@ public partial class UnifiedLibManager
         _logger.LogInformation("Got init for module {module}. Eye: {eye} Expr: {expr}...",
             module.ModuleClassName, reply.eyeSuccess, reply.expressionSuccess);
 
+        // Only honour what the module was offered, so one that ignores its init flags can't take a part assigned elsewhere
+        var eyeClaimed        = reply.eyeSuccess        && module.EyeOffered;
+        var expressionClaimed = reply.expressionSuccess && module.ExpressionOffered;
+
         // Skip modules that failed to init anything
-        if (!reply.eyeSuccess && !reply.expressionSuccess)
+        if (!eyeClaimed && !expressionClaimed)
         {
             return;
         }
 
-        EyeStatus        = reply.eyeSuccess        ? ModuleState.Active : ModuleState.Uninitialized;
-        ExpressionStatus = reply.expressionSuccess ? ModuleState.Active : ModuleState.Uninitialized;
+        // Don't let a module that only claimed one part reset the status of a part another module already has
+        if (eyeClaimed)
+        {
+            EyeStatus = ModuleState.Active;
+        }
+        if (expressionClaimed)
+        {
+            ExpressionStatus = ModuleState.Active;
+        }
 
         module.ModuleInformation.PropertyChanged += (_, args) =>
         {
@@ -153,8 +167,8 @@ public partial class UnifiedLibManager
         };
 
         module.ModuleInformation.Active          = true;
-        module.ModuleInformation.UsingEye        = !AvailableSandboxModules.Any(m => m.ModuleInformation.UsingEye)        && reply.eyeSuccess;
-        module.ModuleInformation.UsingExpression = !AvailableSandboxModules.Any(m => m.ModuleInformation.UsingExpression) && reply.expressionSuccess;
+        module.ModuleInformation.UsingEye        = !AvailableSandboxModules.Any(m => m.ModuleInformation.UsingEye)        && eyeClaimed;
+        module.ModuleInformation.UsingExpression = !AvailableSandboxModules.Any(m => m.ModuleInformation.UsingExpression) && expressionClaimed;
         module.ModuleInformation.StaticImages    = reply.IconDataStreams;
 
         _sendCoordinator.RegisterModule(port);
@@ -220,7 +234,14 @@ public partial class UnifiedLibManager
         {
             reply.UpdateGlobalExpressionState();
         }
-        reply.UpdateHeadState();
+
+        // Every module sends a head pose (zeroes if it doesn't track one), so take it from a single module or they fight.
+        // That's the expression module, or the eye module when nothing handles expressions.
+        if (module.ModuleInformation.UsingExpression
+            || (module.ModuleInformation.UsingEye && ExpressionStatus == ModuleState.Uninitialized))
+        {
+            reply.UpdateHeadState();
+        }
 
         _sendCoordinator.NotifyReply(module.SandboxProcessPort);
     }

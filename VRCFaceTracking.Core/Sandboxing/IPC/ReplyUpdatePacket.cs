@@ -195,8 +195,8 @@ public class ReplyUpdatePacket : IpcPacket
 
     public void UpdateGlobalExpressionState()
     {
-        // Copy face tracking
-        for ( int i = (int)UnifiedExpressions.BrowOuterUpLeft; i < _contiguousUnifiedData.Expression_Shapes.Length; i++ )
+        // Copy face tracking. Starts after the last shape UpdateGlobalEyeState owns, otherwise an expression-only module overwrites BrowOuterUpLeft
+        for ( int i = (int)UnifiedExpressions.BrowOuterUpLeft + 1; i < _contiguousUnifiedData.Expression_Shapes.Length; i++ )
         {
             if ( _contiguousUnifiedData.Expression_Shapes[i] != INVALID_FLOAT)
                 UnifiedTracking.Data.Shapes[i].Weight = _contiguousUnifiedData.Expression_Shapes[i];

@@ -25,6 +25,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<UnifiedTracking>();
         services.AddSingleton<ILibManager, UnifiedLibManager>();
         services.AddSingleton<IOscTarget, OscTarget>();
+        services.AddSingleton<TrackingSourceSettings>();
         services.AddSingleton<OscSendService>();
         services.AddSingleton<OscRecvService>();
         services.AddSingleton<HttpHandler>();
