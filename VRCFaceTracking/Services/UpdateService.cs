@@ -29,7 +29,11 @@ public partial class UpdateService : ObservableObject
     private readonly Task _settingsLoad;
     private readonly SemaphoreSlim _updateLock = new(1, 1);
     private UpdateInfo? _availableUpdate;
+    private UpdateInfo? _downloadedUpdate;
     private bool _loadingSettings;
+
+    // VRCFaceTracking stays open for whole VR sessions, so it checks again while running
+    private static readonly TimeSpan CheckInterval = TimeSpan.FromHours(4);
 
     // Empty uses BuildRepository
     [ObservableProperty][property: SavedSetting("UpdateRepository", "")] private string _repository = "";
@@ -87,6 +91,26 @@ public partial class UpdateService : ObservableObject
     }
 
     /// <summary>
+    /// Checks for updates now and then every few hours until VRCFaceTracking closes
+    /// </summary>
+    public async Task CheckForUpdatesPeriodicallyAsync()
+    {
+        using var timer = new PeriodicTimer(CheckInterval);
+        do
+        {
+            try
+            {
+                await CheckForUpdatesAsync();
+            }
+            catch (Exception e)
+            {
+                _logger.LogWarning("Update check failed: {error}", e.Message);
+            }
+        }
+        while (await timer.WaitForNextTickAsync());
+    }
+
+    /// <summary>
     /// Looks for a newer release, and downloads it if updates install automatically. A downloaded update is applied the next time VRCFaceTracking starts
     /// </summary>
     public async Task CheckForUpdatesAsync()
@@ -111,20 +135,26 @@ public partial class UpdateService : ObservableObject
                 return;
             }
 
-            await SetState($"Checking {EffectiveRepository} for updates...", busy: true);
+            await SetState($"Checking {EffectiveRepository} for updates...", busy: true, canRestart: _downloadedUpdate != null);
             var update = await CreateManager().CheckForUpdatesAsync();
             if (update == null)
             {
-                await SetState($"Up to date ({InstalledVersion}).");
+                await SetState($"Up to date ({InstalledVersion}). Checked at {DateTime.Now:t}.");
+                return;
+            }
+
+            var version = update.TargetFullRelease.Version;
+            if (version == _downloadedUpdate?.TargetFullRelease.Version)
+            {
+                await SetState(RestartStatus(version), canRestart: true);
                 return;
             }
 
             _availableUpdate = update;
-            var version = update.TargetFullRelease.Version;
             _logger.LogInformation("Update {version} is available from {repository}", version, EffectiveRepository);
             if (!AutoUpdate)
             {
-                await SetState($"Version {version} is available.", canDownload: true);
+                await SetState($"Version {version} is available.", canDownload: true, canRestart: _downloadedUpdate != null);
                 return;
             }
 
@@ -169,21 +199,24 @@ public partial class UpdateService : ObservableObject
         await SetState($"Downloading version {version}...", busy: true);
         await CreateManager().DownloadUpdatesAsync(update);
 
+        _downloadedUpdate = update;
         _logger.LogInformation("Downloaded update {version}. It installs on the next start", version);
-        await SetState($"Version {version} installs the next time VRCFaceTracking starts.", canRestart: true);
+        await SetState(RestartStatus(version), canRestart: true);
     }
+
+    private static string RestartStatus(SemanticVersion version) => $"Version {version} installs the next time VRCFaceTracking starts.";
 
     /// <summary>
     /// Closes VRCFaceTracking the usual way so modules shut down, then installs the downloaded update and starts it again
     /// </summary>
     public void RestartToUpdate()
     {
-        if (_availableUpdate == null)
+        if (_downloadedUpdate == null)
         {
             return;
         }
 
-        CreateManager().WaitExitThenApplyUpdates(_availableUpdate.TargetFullRelease, silent: true, restart: true);
+        CreateManager().WaitExitThenApplyUpdates(_downloadedUpdate.TargetFullRelease, silent: true, restart: true);
         (Application.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Shutdown();
     }
 
