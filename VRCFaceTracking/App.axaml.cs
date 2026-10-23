@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
@@ -8,6 +9,7 @@ using FluentAvalonia.Styling;
 using Microsoft.Extensions.Hosting;
 using VRCFaceTracking.Contracts.Services;
 using VRCFaceTracking.Core.Contracts.Services;
+using VRCFaceTracking.Services;
 using VRCFaceTracking.Views;
 
 namespace VRCFaceTracking
@@ -60,7 +62,7 @@ namespace VRCFaceTracking
             if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
             {
                 MainWindow = new MainWindow();
-                desktop.MainWindow = MainWindow;
+                SetUpMainWindow(desktop, MainWindow);
                 desktop.Exit += (_, _) =>
                 {
                     Task.Run(async () =>
@@ -80,6 +82,33 @@ namespace VRCFaceTracking
             Ioc.Default.GetRequiredService<IActivationService>().ActivateAsync(null);
 
             base.OnFrameworkInitializationCompleted();
+        }
+
+        private void SetUpMainWindow(IClassicDesktopStyleApplicationLifetime desktop, MainWindow window)
+        {
+            var tray = Ioc.Default.GetRequiredService<TrayService>();
+            var startMinimized = false;
+            try
+            {
+                // Waited on here because the lifetime shows its main window as soon as startup returns.
+                // Run off the UI thread so the load doesn't wait on it
+                Task.Run(tray.LoadSettingsAsync).GetAwaiter().GetResult();
+                startMinimized = tray.StartMinimized;
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Failed to load tray settings");
+            }
+
+            var trayAdded = tray.Attach(desktop, window);
+
+            // Starting it while a copy runs replaces that copy, so show the window then, or opening it from a shortcut would look like it did nothing
+            var replacingRunningCopy = Process.GetProcessesByName("VRCFaceTracking").Any(p => p.Id != Environment.ProcessId);
+
+            if (!startMinimized || !trayAdded || replacingRunningCopy)
+            {
+                desktop.MainWindow = window;
+            }
         }
 
         private void HandleResetFile()

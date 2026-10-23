@@ -21,6 +21,37 @@
                 </ComboBox>
             </ui:SettingsExpander>
 
+            <TextBlock Text="WINDOW" FontSize="12" FontWeight="SemiBold" Opacity="0.6" Margin="0,16,0,6" />
+
+            <ui:SettingsExpander
+                Header="Tray icon"
+                Description="Click the VRCFaceTracking icon in the notification area to open the window, or right-click it to quit."
+                IsExpanded="True">
+                <ui:SettingsExpander.Items>
+                    <ui:SettingsExpanderItem
+                        Content="Close to tray"
+                        Description="Keep running in the tray when the window is closed.">
+                        <ui:SettingsExpanderItem.Footer>
+                            <ToggleSwitch
+                                IsChecked="{Binding Tray.CloseToTray, Mode=TwoWay}"
+                                OffContent=""
+                                OnContent="" />
+                        </ui:SettingsExpanderItem.Footer>
+                    </ui:SettingsExpanderItem>
+
+                    <ui:SettingsExpanderItem
+                        Content="Start minimized"
+                        Description="Start in the tray without opening the window, like when SteamVR starts it. Starting it again while it's running opens the window.">
+                        <ui:SettingsExpanderItem.Footer>
+                            <ToggleSwitch
+                                IsChecked="{Binding Tray.StartMinimized, Mode=TwoWay}"
+                                OffContent=""
+                                OnContent="" />
+                        </ui:SettingsExpanderItem.Footer>
+                    </ui:SettingsExpanderItem>
+                </ui:SettingsExpander.Items>
+            </ui:SettingsExpander>
+
             <TextBlock Text="OSC SETTINGS" FontSize="12" FontWeight="SemiBold" Opacity="0.6" Margin="0,16,0,6" />
 
             <ui:SettingsExpander

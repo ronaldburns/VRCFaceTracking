@@ -10,6 +10,7 @@ public partial class SettingsViewModel : ObservableRecipient
 {
     [ObservableProperty] private List<GithubContributor> _contributors = [];
 
+    public TrayService Tray { get; }
     public IOscTarget OscTarget { get; }
     public RiskySettingsViewModel RiskySettings { get; }
     public UpdateService Updates { get; }
@@ -31,11 +32,13 @@ public partial class SettingsViewModel : ObservableRecipient
     public SettingsViewModel(
         GithubService githubService,
         OpenVRService openVRService,
+        TrayService trayService,
         IOscTarget oscTarget,
         RiskySettingsViewModel riskySettingsViewModel,
         UpdateService updateService)
     {
         _openVRService = openVRService;
+        Tray = trayService;
         OscTarget = oscTarget;
         RiskySettings = riskySettingsViewModel;
         Updates = updateService;
