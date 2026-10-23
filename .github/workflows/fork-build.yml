@@ -1,0 +1,49 @@
+name: Fork Build
+on:
+  # Only branches that contain this file run it on push. Topic branches start from upstream/master,
+  # which doesn't, so they get checked by opening a PR into master
+  push:
+    branches-ignore:
+      - master
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+  # For upstream-sync.yml, since what a workflow pushes can't start other workflows
+  workflow_call:
+    inputs:
+      ref:
+        description: Branch, commit or PR merge ref to build
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-build-${{ inputs.ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # Same runner and publish as fork-release.yml, so a passing build means a release would build too
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }} # Empty unless called, which checks out what triggered the run
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish Windows (x64)
+        run: |
+          for project in VRCFaceTracking/VRCFaceTracking.csproj VRCFaceTracking.ModuleProcess/VRCFaceTracking.ModuleProcess.csproj; do
+            dotnet publish "$project" --configuration Release -r win-x64 --self-contained false --output ./publish/windows
+          done
