@@ -80,6 +80,53 @@
                 </Grid>
             </Border>
 
+            <TextBlock Text="UPDATES" FontSize="12" FontWeight="SemiBold" Opacity="0.6" Margin="0,16,0,6" />
+
+            <ui:SettingsExpander
+                Header="Updates"
+                Description="{Binding Updates.Status}"
+                IsExpanded="True">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button
+                        Content="Check now"
+                        Command="{Binding CheckForUpdatesCommand}"
+                        IsEnabled="{Binding !Updates.IsBusy}" />
+                    <Button
+                        Content="Download"
+                        Command="{Binding DownloadUpdateCommand}"
+                        IsVisible="{Binding Updates.CanDownload}" />
+                    <Button
+                        Classes="accent"
+                        Content="Restart to update"
+                        Command="{Binding RestartToUpdateCommand}"
+                        IsVisible="{Binding Updates.CanRestart}" />
+                </StackPanel>
+
+                <ui:SettingsExpander.Items>
+                    <ui:SettingsExpanderItem
+                        Content="Install updates automatically"
+                        Description="Downloads new versions in the background. They install the next time VRCFaceTracking starts.">
+                        <ui:SettingsExpanderItem.Footer>
+                            <ToggleSwitch
+                                IsChecked="{Binding Updates.AutoUpdate, Mode=TwoWay}"
+                                OffContent=""
+                                OnContent="" />
+                        </ui:SettingsExpanderItem.Footer>
+                    </ui:SettingsExpanderItem>
+
+                    <ui:SettingsExpanderItem
+                        Content="Update source"
+                        Description="The GitHub repository whose releases this copy updates from, as owner/name. Leave it empty to use the one it was built from.">
+                        <ui:SettingsExpanderItem.Footer>
+                            <TextBox
+                                MinWidth="260"
+                                Watermark="{Binding Updates.DefaultRepository}"
+                                Text="{Binding Updates.Repository, Mode=TwoWay}" />
+                        </ui:SettingsExpanderItem.Footer>
+                    </ui:SettingsExpanderItem>
+                </ui:SettingsExpander.Items>
+            </ui:SettingsExpander>
+
             <TextBlock Text="ADVANCED" FontSize="12" FontWeight="SemiBold" Opacity="0.6" Margin="0,16,0,6" />
 
             <ui:SettingsExpander
