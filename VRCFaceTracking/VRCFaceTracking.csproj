@@ -77,7 +77,8 @@
     </Content>
   </ItemGroup>
   <ItemGroup>
-    <Content Update="Assets\WindowIcon.ico">
+    <!-- Include, not Update: .ico files aren't Content by default, so an Update matched nothing and the window and tray had no icon -->
+    <Content Include="Assets\WindowIcon.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
