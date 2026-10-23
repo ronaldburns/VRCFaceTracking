@@ -67,7 +67,16 @@ public class ModuleInstaller(ILogger<ModuleInstaller> logger, ILibManager libMan
                 throw new InvalidDataException($"MD5 hash mismatch. Expected {md5Hash}, got {hashStr}");
             }
         }
-        
+
+        if (!string.IsNullOrEmpty(moduleMetadata.FileSha256))
+        {
+            var hashStr = Convert.ToHexString(SHA256.HashData(content));
+            if (!string.Equals(hashStr, moduleMetadata.FileSha256, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException($"SHA256 hash mismatch. Expected {moduleMetadata.FileSha256}, got {hashStr}");
+            }
+        }
+
         await File.WriteAllBytesAsync(filePath, content);
         await Task.CompletedTask;
     }
@@ -199,9 +208,9 @@ public class ModuleInstaller(ILogger<ModuleInstaller> logger, ILibManager libMan
         
         EnsureCustomLibsDirectoryExists();
 
-        // First we need to create the directory for the module. If it already exists, we'll delete it and start fresh.
+        // The module gets its own directory. Any installed version is removed only once the new one has downloaded
+        // and passed its hash check, so a failed update leaves it in place
         var moduleDirectory = Path.Combine(Utils.CustomLibsDirectory, moduleMetadata.ModuleId.ToString());
-        await UninstallModule(moduleMetadata);
 
         // Time to download the main files
         var downloadExtension = Path.GetExtension(moduleMetadata.DownloadUrl);
@@ -253,6 +262,8 @@ public class ModuleInstaller(ILogger<ModuleInstaller> logger, ILibManager libMan
                 return null;
             }
 
+            await UninstallModule(moduleMetadata);
+
             // Move the contents of this directory to our newly made module directory
             logger.LogInformation($"Moving extracted files for {moduleMetadata.ModuleName} from {tempDirectory} to {moduleDirectory}");
             try
@@ -292,21 +303,24 @@ public class ModuleInstaller(ILogger<ModuleInstaller> logger, ILibManager libMan
                 moduleDirectory,
                 moduleMetadata.DllFileName);
 
-            if (Directory.Exists(moduleDirectory))
-            {
-                Directory.Delete(moduleDirectory, true);
-            }
-            Directory.CreateDirectory(moduleDirectory);
-
+            var tempDllPath = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
             try
             {
-                await DownloadModuleToFile(moduleMetadata, dllPath, moduleMetadata.FileHash);
+                await DownloadModuleToFile(moduleMetadata, tempDllPath, moduleMetadata.FileHash);
             }
             catch (Exception e)
             {
                 logger.LogError($"Failed to download module data for {moduleMetadata.ModuleName}. {e}");
                 return null;
             }
+
+            await UninstallModule(moduleMetadata);
+            if (Directory.Exists(moduleDirectory))
+            {
+                Directory.Delete(moduleDirectory, true);
+            }
+            Directory.CreateDirectory(moduleDirectory);
+            File.Move(tempDllPath, dllPath, true);
 
             logger.LogDebug("Downloaded module {module} to {dllPath}", moduleMetadata.ModuleId, dllPath);
         }

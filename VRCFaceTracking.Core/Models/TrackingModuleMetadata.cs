@@ -80,4 +80,10 @@ public class TrackingModuleMetadata
     {
         get; set;
     }
+
+    // Checked as well as FileHash (MD5) when set
+    public string? FileSha256
+    {
+        get; set;
+    }
 }

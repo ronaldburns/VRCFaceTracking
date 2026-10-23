@@ -21,12 +21,16 @@ public class ModuleDataService : IModuleDataService
 
     private const string BaseUrl = "https://registry.vrcft.io/";
 
-    // Modules that aren't in the official registry yet, listed from their GitHub repo's latest release.
+    // Modules that aren't in the official registry yet, listed from a GitHub release. Each is pinned to a release that
+    // was reviewed, and its zip has to match the SHA256, so a new or replaced upload doesn't install itself.
     // The repo needs a module.json at the release tag, and the release a zip with the module's DLL at its root
-    private static readonly string[] GithubModuleRepos =
+    private static readonly GithubModule[] GithubModules =
     [
-        "sasaken1102r/VRCFT-FrameEyeOSC",
+        // Reviewed 2026-10-23: only receives on its UDP port and reads its optional config file
+        new("sasaken1102r/VRCFT-FrameEyeOSC", "v1.0.1", "6c4a5916432f82645cedb0af2ca63ea25b09f40988ea30124513ada8d76340ba"),
     ];
+
+    private record GithubModule(string Repo, string Tag, string Sha256);
 
     public ModuleDataService(IIdentityService identityService, ILogger<ModuleDataService> logger)
     {
@@ -57,28 +61,28 @@ public class ModuleDataService : IModuleDataService
         }
     }
 
-    private async Task<InstallableTrackingModule?> GetGithubModule(string repo)
+    private async Task<InstallableTrackingModule?> GetGithubModule(GithubModule pin)
     {
+        var (repo, tag, sha256) = pin;
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{repo}/releases/latest");
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{repo}/releases/tags/{Uri.EscapeDataString(tag)}");
             request.Headers.UserAgent.Add(new ProductInfoHeaderValue("VRCFaceTracking", "1.0"));
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
             var response = await _httpClient.SendAsync(request);
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning("Failed to get the latest release of {Repo}. Status code: {StatusCode}", repo, response.StatusCode);
+                _logger.LogWarning("Failed to get release {Tag} of {Repo}. Status code: {StatusCode}", tag, repo, response.StatusCode);
                 return null;
             }
 
             var release = JObject.Parse(await response.Content.ReadAsStringAsync());
-            var tag = (string?)release["tag_name"];
             var zipUrl = release["assets"]?
                 .Select(asset => (string?)asset["browser_download_url"])
                 .FirstOrDefault(url => url?.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ?? false);
-            if (tag == null || zipUrl == null)
+            if (zipUrl == null)
             {
-                _logger.LogWarning("The latest release of {Repo} has no zip to install", repo);
+                _logger.LogWarning("Release {Tag} of {Repo} has no zip to install", tag, repo);
                 return null;
             }
 
@@ -90,6 +94,7 @@ public class ModuleDataService : IModuleDataService
             }
 
             module.DownloadUrl = zipUrl;
+            module.FileSha256 = sha256;
             module.LastUpdated = (DateTime?)release["published_at"] ?? module.LastUpdated;
             module.ModulePageUrl ??= $"https://github.com/{repo}";
             return module;
@@ -108,7 +113,7 @@ public class ModuleDataService : IModuleDataService
             var modules = new List<InstallableTrackingModule>(await AllModules());
 
             // Once a module is in the official registry, its entry there is used instead
-            var githubModules = await Task.WhenAll(GithubModuleRepos.Select(GetGithubModule));
+            var githubModules = await Task.WhenAll(GithubModules.Select(GetGithubModule));
             modules.AddRange(githubModules.OfType<InstallableTrackingModule>()
                 .Where(githubModule => modules.All(m => m.ModuleId != githubModule.ModuleId)));
 
