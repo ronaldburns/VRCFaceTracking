@@ -8,6 +8,7 @@ namespace VRCFaceTracking.Services;
 public class OpenVRService(ILogger<OpenVRService> logger)
 {
     private CVRSystem? _system;
+    private readonly Lock _initLock = new();
 
     public bool Initialize()
     {
@@ -16,6 +17,21 @@ public class OpenVRService(ILogger<OpenVRService> logger)
             return false;
         }
 
+        lock (_initLock)
+        {
+            // The settings page and startup both initialize it. A second OpenVR.Init fails with
+            // Init_ClientVersionAlreadyProvided, which marked it uninitialized and broke the auto start setting
+            if (IsInitialized)
+            {
+                return true;
+            }
+
+            return InitializeOpenVR();
+        }
+    }
+
+    private bool InitializeOpenVR()
+    {
         try
         {
             EVRInitError error = EVRInitError.None;
