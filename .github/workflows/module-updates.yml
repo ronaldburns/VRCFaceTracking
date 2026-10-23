@@ -1,0 +1,42 @@
+name: Module Updates
+
+# Daily. When a module pinned in VRCFaceTracking/GithubModules.json has a newer GitHub release, opens a PR that pins it,
+# showing what changed in its files so it can be reviewed before merging. One PR per module, updated if another
+# release comes out first. Closing a PR skips that version. Dispatching it on another branch checks that branch's
+# pins and opens PRs into it
+on:
+  schedule:
+    - cron: '41 8 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write # pushes the module-update/* branches
+  pull-requests: write
+
+concurrency:
+  group: module-updates-${{ github.ref }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      PINS: VRCFaceTracking/GithubModules.json
+      BASE_BRANCH: ${{ github.ref_name }}
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # Lists what a module's files reference without running them, for the PR
+      - name: Build the module inspector
+        run: dotnet build tools/ModuleInspector -c Release -o "$RUNNER_TEMP/inspector"
+
+      - name: Look for module updates
+        run: bash .github/scripts/module-updates.sh

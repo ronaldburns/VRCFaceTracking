@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Used by .github/workflows/module-updates.yml. Not part of the solution or the app -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(VftTargetFramework)</TargetFramework>
+  </PropertyGroup>
+
+</Project>
