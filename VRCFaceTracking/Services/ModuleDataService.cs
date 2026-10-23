@@ -1,7 +1,9 @@
 ﻿using System.Net;
+using System.Net.Http.Headers;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using VRCFaceTracking.Core.Contracts.Services;
 using VRCFaceTracking.Core.Helpers;
 using VRCFaceTracking.Core.Models;
@@ -18,6 +20,13 @@ public class ModuleDataService : IModuleDataService
     private readonly HttpClient _httpClient;
 
     private const string BaseUrl = "https://registry.vrcft.io/";
+
+    // Modules that aren't in the official registry yet, listed from their GitHub repo's latest release.
+    // The repo needs a module.json at the release tag, and the release a zip with the module's DLL at its root
+    private static readonly string[] GithubModuleRepos =
+    [
+        "sasaken1102r/VRCFT-FrameEyeOSC",
+    ];
 
     public ModuleDataService(IIdentityService identityService, ILogger<ModuleDataService> logger)
     {
@@ -48,10 +57,64 @@ public class ModuleDataService : IModuleDataService
         }
     }
 
+    private async Task<InstallableTrackingModule?> GetGithubModule(string repo)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{repo}/releases/latest");
+            request.Headers.UserAgent.Add(new ProductInfoHeaderValue("VRCFaceTracking", "1.0"));
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+            var response = await _httpClient.SendAsync(request);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Failed to get the latest release of {Repo}. Status code: {StatusCode}", repo, response.StatusCode);
+                return null;
+            }
+
+            var release = JObject.Parse(await response.Content.ReadAsStringAsync());
+            var tag = (string?)release["tag_name"];
+            var zipUrl = release["assets"]?
+                .Select(asset => (string?)asset["browser_download_url"])
+                .FirstOrDefault(url => url?.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ?? false);
+            if (tag == null || zipUrl == null)
+            {
+                _logger.LogWarning("The latest release of {Repo} has no zip to install", repo);
+                return null;
+            }
+
+            var moduleJson = await _httpClient.GetStringAsync($"https://raw.githubusercontent.com/{repo}/{tag}/module.json");
+            var module = JsonConvert.DeserializeObject<InstallableTrackingModule>(moduleJson);
+            if (module == null)
+            {
+                return null;
+            }
+
+            module.DownloadUrl = zipUrl;
+            module.LastUpdated = (DateTime?)release["published_at"] ?? module.LastUpdated;
+            module.ModulePageUrl ??= $"https://github.com/{repo}";
+            return module;
+        }
+        catch (Exception e)
+        {
+            _logger.LogWarning("Exception trying to get module {Repo} from GitHub: {e}", repo, e.Message);
+            return null;
+        }
+    }
+
     public async Task<IEnumerable<InstallableTrackingModule>> GetRemoteModules()
     {
-        _remoteModules ??= new List<InstallableTrackingModule>(await AllModules());
-        
+        if (_remoteModules == null)
+        {
+            var modules = new List<InstallableTrackingModule>(await AllModules());
+
+            // Once a module is in the official registry, its entry there is used instead
+            var githubModules = await Task.WhenAll(GithubModuleRepos.Select(GetGithubModule));
+            modules.AddRange(githubModules.OfType<InstallableTrackingModule>()
+                .Where(githubModule => modules.All(m => m.ModuleId != githubModule.ModuleId)));
+
+            _remoteModules = modules;
+        }
+
         return new List<InstallableTrackingModule>(_remoteModules);
     }
 
