@@ -86,7 +86,8 @@ jobs:
           if [ -n "$pr" ]; then
             gh pr edit "$pr" --body-file body.md
           else
-            url=$(gh pr create --base "$BASE_BRANCH" --head "$owner:$UPSTREAM_BRANCH" \
+            # The head branch is upstream's, and allowing maintainer edits needs push access to it
+            url=$(gh pr create --base "$BASE_BRANCH" --head "$owner:$UPSTREAM_BRANCH" --no-maintainer-edit \
               --title "Merge upstream changes from $UPSTREAM_REPO $UPSTREAM_BRANCH" --body-file body.md)
             pr=${url##*/}
           fi
