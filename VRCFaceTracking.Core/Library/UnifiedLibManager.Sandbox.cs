@@ -106,6 +106,23 @@ public partial class UnifiedLibManager
         module.EyeOffered        = EyeStatus == ModuleState.Uninitialized        && IsAllowedSource(_trackingSources.EyeSource, module);
         module.ExpressionOffered = ExpressionStatus == ModuleState.Uninitialized && IsAllowedSource(_trackingSources.ExpressionSource, module);
 
+        // A module with nothing to track would otherwise initialize anyway and hold its device or port for nothing.
+        // Killed rather than sent a teardown, because modules don't expect Teardown before Initialize.
+        if (!module.EyeOffered && !module.ExpressionOffered)
+        {
+            _logger.LogInformation("{module} isn't picked for eye or face tracking, or both are taken. Stopping it", module.ModuleClassName);
+            module.IsActive = false;
+            try
+            {
+                module.Process?.Kill(entireProcessTree: true);
+            }
+            catch (Exception e)
+            {
+                _logger.LogWarning("Couldn't stop {module}: {error}", module.ModuleClassName, e.Message);
+            }
+            return;
+        }
+
         var initPacket = new EventInitPacket
         {
             expressionAvailable = module.ExpressionOffered,
