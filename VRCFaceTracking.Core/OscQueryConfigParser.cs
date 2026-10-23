@@ -38,6 +38,22 @@ public class OscQueryConfigParser(
                 paramList.AddRange(parameter.ResetParam(avatarInfo.Parameters, avatarInfo));
             }
 
+            // VRChat builds without the name endpoint only have the name in the legacy OSC config files
+            if (avatarConfig.Contents?.ContainsKey("name") != true)
+            {
+                var configFileInfo = await configParser.ParseAvatar(avatarInfo.Id, true);
+                parserLogger.LogInformation($"Attempting to resolve avatar config file for {avatarInfo.Id}");
+                if (!string.IsNullOrEmpty(configFileInfo?.avatarInfo.Name))
+                {
+                    avatarInfo.Name = configFileInfo.Value.avatarInfo.Name;
+                    parserLogger.LogInformation($"Successfully found config containing avatar name {avatarInfo.Name}");
+                }
+                else
+                {
+                    parserLogger.LogWarning("Odd. Our attempt to find the legacy osc config json for this avatar failed.");
+                }
+            }
+
             return (avatarInfo, paramList);
         }
         catch (Exception e)
