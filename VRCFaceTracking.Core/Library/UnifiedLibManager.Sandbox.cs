@@ -226,21 +226,24 @@ public partial class UnifiedLibManager
             return;
         }
 
-        if (module.ModuleInformation.UsingEye)
+        lock (UnifiedTracking.DataLock)
         {
-            reply.UpdateGlobalEyeState();
-        }
-        if (module.ModuleInformation.UsingExpression)
-        {
-            reply.UpdateGlobalExpressionState();
-        }
+            if (module.ModuleInformation.UsingEye)
+            {
+                reply.UpdateGlobalEyeState();
+            }
+            if (module.ModuleInformation.UsingExpression)
+            {
+                reply.UpdateGlobalExpressionState();
+            }
 
-        // Every module sends a head pose (zeroes if it doesn't track one), so take it from a single module or they fight.
-        // That's the expression module, or the eye module when nothing handles expressions.
-        if (module.ModuleInformation.UsingExpression
-            || (module.ModuleInformation.UsingEye && ExpressionStatus == ModuleState.Uninitialized))
-        {
-            reply.UpdateHeadState();
+            // Every module sends a head pose (zeroes if it doesn't track one), so take it from a single module or they fight.
+            // That's the expression module, or the eye module when nothing handles expressions.
+            if (module.ModuleInformation.UsingExpression
+                || (module.ModuleInformation.UsingEye && ExpressionStatus == ModuleState.Uninitialized))
+            {
+                reply.UpdateHeadState();
+            }
         }
 
         _sendCoordinator.NotifyReply(module.SandboxProcessPort);
