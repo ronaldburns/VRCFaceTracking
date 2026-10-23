@@ -65,6 +65,7 @@ public partial class TrayService : ObservableObject
         {
             if (window.Icon == null || Application.Current == null)
             {
+                _logger.LogWarning("Couldn't add the tray icon: the window has no icon");
                 return false;
             }
 
