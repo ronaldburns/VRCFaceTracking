@@ -91,8 +91,7 @@ namespace VRCFaceTracking.Core.Params.Data
             bytes[7] = (byte)(Math.Clamp(Left.Gaze.y*-1, 0f, 1f) * 255);
             bytes[9] = (byte)(Math.Clamp((Left.Openness-1)*-1, 0f, 1f) * 255);
 
-            // Split the existing 0..10 mm pupil diameter scale around its midpoint.
-            // Native dilation and constriction are opposing weights, neutral at 5 mm.
+            // Native dilation and constriction are opposing weights, neutral in the middle of the pupil's range.
             var rightPupil = GetPupilWeight(Right.PupilDiameter_MM);
             var leftPupil = GetPupilWeight(Left.PupilDiameter_MM);
             bytes[10] = (byte)(Math.Max(rightPupil, 0f) * 255);
@@ -101,16 +100,20 @@ namespace VRCFaceTracking.Core.Params.Data
             bytes[13] = (byte)(Math.Max(-leftPupil, 0f) * 255);
         }
 
-        private static float GetPupilWeight(float diameter)
+        // Normalized against the same dilation range as Combined(), so it matches the EyesDilation parameter.
+        // Modules can set that range themselves, and real pupil sizes vary too much for a fixed scale.
+        private float GetPupilWeight(float diameter)
         {
             // Zero is the default for sources without pupil tracking. Invalid samples
-            // must also return to neutral rather than leave stale values in the blob.
-            if (!float.IsFinite(diameter) || diameter <= 0f)
+            // must also return to neutral rather than leave stale values in the blob,
+            // and so does a range that hasn't been seen yet.
+            if (!float.IsFinite(diameter) || diameter <= 0f || !(_maxDilation > _minDilation))
             {
                 return 0f;
             }
 
-            return Math.Clamp(diameter / 5f - 1f, -1f, 1f);
+            var dilation = (diameter - _minDilation) / (_maxDilation - _minDilation);
+            return Math.Clamp(dilation * 2f - 1f, -1f, 1f);
         }
     }
 
