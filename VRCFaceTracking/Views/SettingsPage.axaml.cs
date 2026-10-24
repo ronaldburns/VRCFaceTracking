@@ -3,20 +3,26 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Styling;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.DependencyInjection;
 using FluentAvalonia.Styling;
+using VRCFaceTracking.Contracts;
 using VRCFaceTracking.ViewModels;
 
 namespace VRCFaceTracking.Views;
 
-public partial class SettingsPage : UserControl
+public partial class SettingsPage : UserControl, INotifyNavigated
 {
     private SettingsViewModel ViewModel => (SettingsViewModel)DataContext!;
+
+    // Picks up SteamVR starting or closing while the page is open
+    private readonly DispatcherTimer _steamVRTimer = new() { Interval = TimeSpan.FromSeconds(3) };
 
     public SettingsPage()
     {
         InitializeComponent();
         DataContext = Ioc.Default.GetRequiredService<SettingsViewModel>();
+        _steamVRTimer.Tick += SteamVRTimer_Tick;
 
         // Show current version. Installed copies know their full release version
         var version = ViewModel.Updates.InstalledVersion ?? Assembly.GetExecutingAssembly().GetName().Version?.ToString(3);
@@ -32,6 +38,30 @@ public partial class SettingsPage : UserControl
                 _ => 2
             };
         }
+    }
+
+    public void OnNavigatedTo()
+    {
+        _ = ViewModel.RefreshSteamVRAsync();
+        _steamVRTimer.Start();
+    }
+
+    private async void SteamVRTimer_Tick(object? sender, EventArgs e)
+    {
+        // Navigated to another page
+        if (!IsVisible)
+        {
+            _steamVRTimer.Stop();
+            return;
+        }
+
+        // Closed to the tray
+        if (TopLevel.GetTopLevel(this) is not { IsVisible: true })
+        {
+            return;
+        }
+
+        await ViewModel.RefreshSteamVRAsync();
     }
 
     private void ThemeCombo_SelectionChanged(object? sender, SelectionChangedEventArgs e)
