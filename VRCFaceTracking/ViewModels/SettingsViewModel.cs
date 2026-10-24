@@ -1,3 +1,4 @@
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using VRCFaceTracking.Core.Contracts;
 using VRCFaceTracking.Models;
@@ -14,17 +15,22 @@ public partial class SettingsViewModel : ObservableRecipient
 
     private readonly OpenVRService _openVRService;
 
+    private bool _refreshingSteamVR;
+
     public bool AutoStart
     {
         get => _openVRService.AutoStart;
         set
         {
             _openVRService.AutoStart = value;
-            OnPropertyChanged();
+            // Read back once the binding is done, so the switch flips back if SteamVR didn't save it
+            Dispatcher.UIThread.Post(RaiseSteamVRChanged);
         }
     }
 
     public bool IsOpenVREnabled => _openVRService.IsInitialized;
+
+    public string AutoStartStatus => _openVRService.Status;
 
     public SettingsViewModel(
         GithubService githubService,
@@ -37,7 +43,37 @@ public partial class SettingsViewModel : ObservableRecipient
         RiskySettings = riskySettingsViewModel;
 
         _openVRService.InitIfNotAlready();
+        _openVRService.StatusChanged += () => Dispatcher.UIThread.Post(RaiseSteamVRChanged);
         LoadContributors(githubService);
+    }
+
+    /// <summary>
+    /// Picks up SteamVR starting or closing. The settings page calls it while it's open
+    /// </summary>
+    public async Task RefreshSteamVRAsync()
+    {
+        if (_refreshingSteamVR)
+        {
+            return;
+        }
+
+        _refreshingSteamVR = true;
+        try
+        {
+            await Task.Run(_openVRService.Refresh);
+        }
+        finally
+        {
+            _refreshingSteamVR = false;
+        }
+        RaiseSteamVRChanged();
+    }
+
+    private void RaiseSteamVRChanged()
+    {
+        OnPropertyChanged(nameof(IsOpenVREnabled));
+        OnPropertyChanged(nameof(AutoStart));
+        OnPropertyChanged(nameof(AutoStartStatus));
     }
 
     private async void LoadContributors(GithubService githubService)
