@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.Input;
 using VRCFaceTracking.Core.Contracts;
 using VRCFaceTracking.Models;
 using VRCFaceTracking.Services;
+using VRCFaceTracking.Strings;
 
 namespace VRCFaceTracking.ViewModels;
 
@@ -33,7 +34,8 @@ public partial class SettingsViewModel : ObservableRecipient
 
     public bool IsOpenVREnabled => _openVRService.IsInitialized;
 
-    public string AutoStartStatus => _openVRService.Status;
+    // The second line says where it's saved, or why it can't be changed
+    public string AutoStartDescription => $"{Resources.AutoStartSettings_Description}\n{_openVRService.Status}";
 
     public SettingsViewModel(
         GithubService githubService,
@@ -80,7 +82,7 @@ public partial class SettingsViewModel : ObservableRecipient
     {
         OnPropertyChanged(nameof(IsOpenVREnabled));
         OnPropertyChanged(nameof(AutoStart));
-        OnPropertyChanged(nameof(AutoStartStatus));
+        OnPropertyChanged(nameof(AutoStartDescription));
     }
 
     [RelayCommand]
