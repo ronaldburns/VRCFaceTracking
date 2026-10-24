@@ -14,16 +14,20 @@ public class OpenVRService(ILogger<OpenVRService> logger)
     private const string AppKey = "benaclejames.vrcft";
     private const string Connected = "Saved in SteamVR. While it's on, VRCFaceTracking also quits when SteamVR does.";
     private const string NotRunning = "Saved in SteamVR. Start SteamVR to see or change it.";
+    private const string HeadsetNotConnected = "Saved in SteamVR. Connect your headset to see or change it.";
 
     private CVRSystem? _system;
     private readonly Lock _initLock = new();
     // The SteamVR server it's connected to. The connection stops working when that one closes
     private int? _serverProcessId;
+    // The SteamVR server that sent a quit event, which may take a few seconds to exit
+    private int? _quitServerProcessId;
     private EVRInitError? _lastInitError;
     private CancellationTokenSource? _quitWatch;
+    private Task? _steamVRWatch;
 
     /// <summary>
-    /// Raised when SteamVR quits while connected, from a background thread
+    /// Raised from a background thread when it connects to or disconnects from SteamVR, or its status changes
     /// </summary>
     public event Action? StatusChanged;
 
@@ -37,6 +41,8 @@ public class OpenVRService(ILogger<OpenVRService> logger)
 
         lock (_initLock)
         {
+            WatchSteamVR();
+
             // The settings page and startup both initialize it. A second OpenVR.Init fails with
             // Init_ClientVersionAlreadyProvided, which marked it uninitialized and broke the auto start setting
             if (IsInitialized)
@@ -50,6 +56,14 @@ public class OpenVRService(ILogger<OpenVRService> logger)
 
     private bool InitializeOpenVR()
     {
+        // An app that connects while SteamVR shuts down is one more it has to wait for, or kill
+        var server = SteamVRServerProcessId();
+        if (server != null && server == _quitServerProcessId)
+        {
+            Status = NotRunning;
+            return false;
+        }
+
         try
         {
             EVRInitError error = EVRInitError.None;
@@ -57,15 +71,20 @@ public class OpenVRService(ILogger<OpenVRService> logger)
 
             if (error != EVRInitError.None)
             {
-                // Retried while the settings page is open, so only logged when it changes
+                // Retried in the background, so only logged when it changes
                 if (error != _lastInitError)
                 {
                     logger.LogWarning("Failed to initialize OpenVR: {0}", error);
                 }
                 _lastInitError = error;
-                Status = error == EVRInitError.Init_NoServerForBackgroundApp
-                    ? NotRunning
-                    : $"Saved in SteamVR, but VRCFaceTracking couldn't connect to it ({error}).";
+                Status = error switch
+                {
+                    EVRInitError.Init_NoServerForBackgroundApp => NotRunning,
+                    // SteamVR is running, but it turns background apps away until a headset is connected
+                    EVRInitError.Driver_WirelessHmdNotConnected or EVRInitError.Init_HmdNotFound
+                        or EVRInitError.Init_HmdNotFoundPresenceFailed => HeadsetNotConnected,
+                    _ => $"Saved in SteamVR, but VRCFaceTracking couldn't connect to it ({error}).",
+                };
                 IsInitialized = false;
                 return false;
             }
@@ -125,33 +144,55 @@ public class OpenVRService(ILogger<OpenVRService> logger)
         try
         {
             var server = SteamVRServerProcessId();
+            bool changed;
             lock (_initLock)
             {
+                var (wasInitialized, oldStatus) = (IsInitialized, Status);
+
                 if (IsInitialized && server != _serverProcessId)
                 {
                     logger.LogInformation("SteamVR closed. Disconnecting from it");
                     Shutdown();
                 }
 
-                if (IsInitialized)
+                if (!IsInitialized)
                 {
-                    return;
+                    if (server == null)
+                    {
+                        Status = NotRunning;
+                    }
+                    else
+                    {
+                        InitializeOpenVR();
+                    }
                 }
 
-                if (server == null)
-                {
-                    Status = NotRunning;
-                }
-                else
-                {
-                    InitializeOpenVR();
-                }
+                changed = IsInitialized != wasInitialized || Status != oldStatus;
+            }
+
+            if (changed)
+            {
+                StatusChanged?.Invoke();
             }
         }
         catch (Exception ex)
         {
             logger.LogWarning("Couldn't check on SteamVR: {error}", ex.Message);
         }
+    }
+
+    // SteamVR can start, or the headset connect, after VRCFaceTracking does. The settings page checks more
+    // often while it's open
+    private void WatchSteamVR()
+    {
+        _steamVRWatch ??= Task.Run(async () =>
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
+            while (await timer.WaitForNextTickAsync())
+            {
+                Refresh();
+            }
+        });
     }
 
     // SteamVR sends connected apps a quit event when it closes, and kills any that haven't exited 5 seconds later
@@ -214,6 +255,7 @@ public class OpenVRService(ILogger<OpenVRService> logger)
                 else
                 {
                     logger.LogInformation("SteamVR is quitting. Disconnecting from it");
+                    _quitServerProcessId = _serverProcessId;
                     Shutdown();
                     Status = NotRunning;
                     StatusChanged?.Invoke();
