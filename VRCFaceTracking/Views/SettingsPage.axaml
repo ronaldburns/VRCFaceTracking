@@ -60,29 +60,18 @@
 
             <TextBlock Text="OPENXR / OPENVR" FontSize="12" FontWeight="SemiBold" Opacity="0.6" Margin="0,16,0,6" />
 
-            <Border CornerRadius="6" BorderThickness="1">
-                <Grid Margin="16,12">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
-                        <TextBlock FontWeight="SemiBold" Text="{x:Static s:Resources.AutoStartSettings_Header}" />
-                        <TextBlock FontSize="12" Opacity="0.6"
-                                   Text="{x:Static s:Resources.AutoStartSettings_Description}" />
-                        <!-- Where it's saved, or why it can't be changed. Only the switch is disabled, so this stays readable -->
-                        <TextBlock FontSize="12" Opacity="0.6" TextWrapping="Wrap"
-                                   Text="{Binding AutoStartStatus}" />
-                    </StackPanel>
+            <!-- Only the switch is disabled, so the description saying why stays readable -->
+            <ui:SettingsExpander
+                Header="{x:Static s:Resources.AutoStartSettings_Header}"
+                Description="{Binding AutoStartDescription}">
+                <ui:SettingsExpander.Footer>
                     <ToggleSwitch
-                        Grid.Column="1"
                         IsEnabled="{Binding IsOpenVREnabled}"
                         IsChecked="{Binding AutoStart, Mode=TwoWay}"
                         OffContent=""
-                        OnContent=""
-                        VerticalAlignment="Center" />
-                </Grid>
-            </Border>
+                        OnContent="" />
+                </ui:SettingsExpander.Footer>
+            </ui:SettingsExpander>
 
             <TextBlock Text="ADVANCED" FontSize="12" FontWeight="SemiBold" Opacity="0.6" Margin="0,16,0,6" />
 
