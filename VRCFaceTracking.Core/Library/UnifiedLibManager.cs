@@ -15,12 +15,15 @@ public partial class UnifiedLibManager : ILibManager
     private readonly ILoggerFactory _loggerFactory;
     private readonly IDispatcherService _dispatcherService;
     private readonly IModuleDataService _moduleDataService;
+    private readonly IModuleConfigurationService _moduleConfigurationService;
     private readonly SendCoordinator _sendCoordinator;
     private readonly TrackingSourceSettings _trackingSources;
     private readonly Task _trackingSourcesLoad;
 
-    // Assembly names of the modules spawned by the last Initialize, so a source preference for a module that isn't installed is ignored
-    private readonly HashSet<string> _spawnedModuleNames = new(StringComparer.OrdinalIgnoreCase);
+    // Assembly names of the modules the last Initialize found with eye or expression tracking turned on in their module config.
+    // A source preference for a module that isn't installed, or has that part turned off, is ignored
+    private readonly HashSet<string> _eyeSourceCandidates = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _expressionSourceCandidates = new(StringComparer.OrdinalIgnoreCase);
 
     public ObservableCollection<ModuleMetadataInternal> LoadedModulesMetadata { get; set; }
 
@@ -33,14 +36,24 @@ public partial class UnifiedLibManager : ILibManager
     private readonly List<ModuleRuntimeInfo> _moduleThreads = new();
     private static VrcftSandboxServer _sandboxServer;
 
-    public UnifiedLibManager(ILoggerFactory factory, IDispatcherService dispatcherService, IModuleDataService moduleDataService, SendCoordinator sendCoordinator,
-        ILocalSettingsService localSettingsService, TrackingSourceSettings trackingSources)
+    private bool _isInitializing;
+    private int _pendingInits;
+
+    private static readonly ModuleMetadataInternal InitializingPlaceholder =
+        new() { Active = false, Name = "Initializing Modules..." };
+
+    private static readonly ModuleMetadataInternal NoModulesPlaceholder =
+        new() { Active = false, Name = "No Modules Loaded" };
+
+    public UnifiedLibManager(ILoggerFactory factory, IDispatcherService dispatcherService, IModuleDataService moduleDataService, IModuleConfigurationService moduleConfigurationService,
+        SendCoordinator sendCoordinator, ILocalSettingsService localSettingsService, TrackingSourceSettings trackingSources)
     {
         _loggerFactory = factory;
         _logger = factory.CreateLogger<UnifiedLibManager>();
         _moduleLogger = factory.CreateLogger("\0VRCFT\0");
         _dispatcherService = dispatcherService;
         _moduleDataService = moduleDataService;
+        _moduleConfigurationService = moduleConfigurationService;
         _sendCoordinator = sendCoordinator;
         _trackingSources = trackingSources;
 
@@ -61,12 +74,9 @@ public partial class UnifiedLibManager : ILibManager
 
     public async Task Initialize()
     {
-        LoadedModulesMetadata.Clear();
-        LoadedModulesMetadata.Add(new ModuleMetadataInternal
-        { 
-            Active = false,
-            Name = "Initializing Modules..."
-        });
+        _isInitializing = true;
+        _pendingInits = 0;
+        RefreshLoadedModulesUi();
 
         // Spawn sandbox server if it's null
         if (_sandboxServer == null )
@@ -83,33 +93,65 @@ public partial class UnifiedLibManager : ILibManager
 
         await _trackingSourcesLoad;
 
-        var modules = _moduleDataService.GetInstalledModules().Concat(_moduleDataService.GetLegacyModules());
-        var modulePaths = modules.Select(m => m.AssemblyLoadPath).ToArray();
+        var modules = _moduleDataService.GetInstalledModules().Concat(_moduleDataService.GetLegacyModules()).ToArray();
 
-        _spawnedModuleNames.Clear();
-        _spawnedModuleNames.UnionWith(modulePaths.Select(Path.GetFileNameWithoutExtension).OfType<string>());
+        // Worked out before any module is spawned, since the first ones can reply before the last ones start
+        _eyeSourceCandidates.Clear();
+        _expressionSourceCandidates.Clear();
+        foreach (var module in modules)
+        {
+            var config = await LoadModuleConfig(module);
+            var name = Path.GetFileNameWithoutExtension(module.AssemblyLoadPath);
+            if (config?.EyesEnabled ?? true)
+            {
+                _eyeSourceCandidates.Add(name);
+            }
+            if (config?.ExpressionEnabled ?? true)
+            {
+                _expressionSourceCandidates.Add(name);
+            }
+        }
         _logger.LogInformation("Tracking sources. Eye: {eye} Expr: {expr}",
-            DescribeSource(_trackingSources.EyeSource), DescribeSource(_trackingSources.ExpressionSource));
+            DescribeSource(_trackingSources.EyeSource, _eyeSourceCandidates),
+            DescribeSource(_trackingSources.ExpressionSource, _expressionSourceCandidates));
 
         AvailableSandboxModules.Clear();
-        InitialiseSandboxesBaseOnPaths(modulePaths);
+        await InitialiseSandboxesBase(modules);
 
-        if (AvailableSandboxModules.Count > 0)
+        _pendingInits = AvailableSandboxModules.Count;
+
+        if (_pendingInits > 0)
         {
             _logger.LogDebug("Initializing requested runtimes...");
             return;
         }
 
+        _isInitializing = false;
+        _logger.LogWarning("No modules loaded.");
+        RefreshLoadedModulesUi();
+    }
+
+    private void RefreshLoadedModulesUi()
+    {
         _dispatcherService.Run(() =>
         {
             LoadedModulesMetadata.Clear();
-            LoadedModulesMetadata.Add(new ModuleMetadataInternal
+
+            foreach (var module in AvailableSandboxModules)
             {
-                Active = false,
-                Name = "No Modules Loaded",
-            });
+                if (module.ModuleInformation?.Active == true)
+                {
+                    LoadedModulesMetadata.Add(module.ModuleInformation);
+                }
+            }
+
+            if (LoadedModulesMetadata.Count > 0)
+            {
+                return;
+            }
+
+            LoadedModulesMetadata.Add(_isInitializing ? InitializingPlaceholder : NoModulesPlaceholder);
         });
-        _logger.LogWarning("No modules loaded.");
     }
 
     // Signal all active modules to gracefully shut down their respective runtimes.
@@ -131,20 +173,31 @@ public partial class UnifiedLibManager : ILibManager
 
         EyeStatus = ModuleState.Uninitialized;
         ExpressionStatus = ModuleState.Uninitialized;
+
+        _pendingInits = 0;
+        if (!_isInitializing)
+        {
+            RefreshLoadedModulesUi();
+        }
     }
 
     // A module may take a part of the face if the user left it on automatic, picked this module, or picked a module that isn't installed
-    private bool IsAllowedSource(string preferredSource, ModuleRuntimeInfo module) =>
+    // or has that part turned off in its module config
+    private static bool IsAllowedSource(string preferredSource, HashSet<string> candidates, ModuleRuntimeInfo module) =>
         preferredSource == TrackingSourceSettings.Automatic
-        || !_spawnedModuleNames.Contains(preferredSource)
+        || !candidates.Contains(preferredSource)
         || string.Equals(preferredSource, module.ModuleClassName, StringComparison.OrdinalIgnoreCase);
 
-    private string DescribeSource(string preferredSource) => preferredSource switch
+    private static string DescribeSource(string preferredSource, HashSet<string> candidates) => preferredSource switch
     {
         TrackingSourceSettings.Automatic => "automatic",
-        _ when !_spawnedModuleNames.Contains(preferredSource) => $"{preferredSource} (not installed, using automatic)",
+        _ when !candidates.Contains(preferredSource) => $"{preferredSource} (not installed or turned off, using automatic)",
         _ => preferredSource,
     };
+
+    // Legacy modules, and ones that connected without being spawned by Initialize, have no module config, so everything stays enabled for them
+    private async Task<ModuleConfigEntry?> LoadModuleConfig(TrackingModuleMetadata? module) =>
+        module == null ? null : await _moduleConfigurationService.LoadModule(module.ModuleId);
 
     private async Task TryTeardownModule(ModuleRuntimeInfo module)
     {

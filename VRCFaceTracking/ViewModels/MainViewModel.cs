@@ -26,6 +26,9 @@ public partial class MainViewModel : ObservableRecipient
     private static readonly TrackingSourceOption AutomaticSource = new(TrackingSourceSettings.Automatic, "Automatic");
     private const string NoActiveSource = "Not handled by any module";
 
+    // The loaded modules whose PropertyChanged is subscribed to, so they can be unsubscribed when the list is rebuilt
+    private readonly List<ModuleMetadataInternal> _watchedModules = [];
+
     [ObservableProperty] private List<TrackingSourceOption> _trackingSourceOptions = [AutomaticSource];
     [ObservableProperty] private TrackingSourceOption? _selectedEyeSource = AutomaticSource;
     [ObservableProperty] private TrackingSourceOption? _selectedExpressionSource = AutomaticSource;
@@ -176,13 +179,16 @@ public partial class MainViewModel : ObservableRecipient
 
     private void OnLoadedModulesChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        foreach (var module in e.NewItems?.OfType<ModuleMetadataInternal>() ?? [])
-        {
-            module.PropertyChanged += OnLoadedModulePropertyChanged;
-        }
-        foreach (var module in e.OldItems?.OfType<ModuleMetadataInternal>() ?? [])
+        // The list is rebuilt with Clear(), which raises a Reset without OldItems, so follow the whole list rather than each change
+        foreach (var module in _watchedModules)
         {
             module.PropertyChanged -= OnLoadedModulePropertyChanged;
+        }
+        _watchedModules.Clear();
+        _watchedModules.AddRange(LibManager.LoadedModulesMetadata);
+        foreach (var module in _watchedModules)
+        {
+            module.PropertyChanged += OnLoadedModulePropertyChanged;
         }
 
         Dispatcher.UIThread.Post(RefreshActiveTrackingSources);
